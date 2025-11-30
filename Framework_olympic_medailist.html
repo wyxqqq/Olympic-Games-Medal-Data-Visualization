@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- 引入 Vue 3 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.3.4/vue.global.prod.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@4.9.0/map/js/world.js"></script>
+    <script src="./olympic_medal_top32_data.js"></script>
+    <script src="./2024_sportsData.js"></script>
+    <script src="./detailedMedalData.js"></script>
+    <title>历届奥运会奖牌分布可视化</title>
+    <style>
+        body {
+            background-color: #f3f4f6;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        .chart-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            padding: 16px;
+            height: 85vh;
+            display: flex;
+            flex-direction: column;
+            margin: 10px;
+        }
+
+        .chart-container {
+            flex: 1;
+            width: 100%;
+            height: 100%;
+            min-height: 0;
+        }
+
+        .card-header {
+            margin-bottom: 10px;
+            border-left: 4px solid #3b82f6;
+            padding-left: 10px;
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #1f2937;
+        }
+
+        .card-desc {
+            font-size: 0.85rem;
+            color: #6b7280;
+        }
+
+        #radar-tooltip {
+            display: none;
+            position: fixed;
+            z-index: 99999;
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            box-shadow: 0 15px 50px rgba(0, 0, 0, 0.3);
+            border: 1px solid #eee;
+            width: 400px;
+            height: 450px;
+            overflow: hidden;
+            pointer-events: none;
+            transition: opacity 0.1s ease-out;
+        }
+
+        #radar-header {
+            height: 40px;
+            line-height: 40px;
+            background: #fff0f0;
+            border-bottom: 1px solid #ffdede;
+            text-align: center;
+            font-weight: bold;
+            color: #b71c1c;
+            font-size: 16px;
+            display: block;
+        }
+
+        #mini-radar-chart {
+            width: 400px;
+            height: 410px;
+            display: block;
+        }
+
+        #sportChart {
+            width: 100%;
+            height: 80%;
+        }
+
+        .selector {
+            width: 30%;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+            font-size: 1rem;
+            background-color: white;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="mb">
+            <h1>奥运会奖牌分布可视化</h1>
+            <p>基于《All Olympic Medalist (1896–2024)》</p>
+        </header>
+
+        <!-- Charts Grid -->
+        <div class="grid">
+
+            <!-- 1. 夏季奥运会金牌数据1896-2024 -->
+            <div class="flourish-embed flourish-bar-chart-race" data-src="visualisation/26392034">
+                <script src="https://public.flourish.studio/resources/embed.js"></script>
+                <noscript>
+                    < img src="https://public.flourish.studio/visualisation/26392034/thumbnail" width="100%"
+                        alt="bar-chart-race visualization" />
+                </noscript>
+            </div>
+
+            <!-- 2. 奖牌分布世界地图 -->
+            <div class="chart-card">
+                <div id="radar-tooltip"
+                    :style="{ left: tooltipPos.left, top: tooltipPos.top, display: tooltipVisible ? 'block' : 'none', opacity: tooltipOpacity }">
+                    <div id="radar-header">{{ selectedCountry }} 战力分析</div>
+                    <div id="mini-radar-chart"></div>
+                </div>
+                <div class="card-header">2024 巴黎奥运会奖牌分布 (Top 32 )</div>
+                <div ref="mapChartRef" class="chart-container"></div>
+            </div>
+
+            <!-- 3. 2024年巴黎奥运会奖牌热力图 -->
+            <div class="chart-card">
+                <div class="card-header">
+                    <h2 class="card-title">2024年巴黎奥运会奖牌热力图</h2>
+                </div>
+                <div ref="heapmapRef" class="chart-container"></div>
+            </div>
+
+            <!-- 4. 2024年巴黎奥运会部分项目奖牌占比 -->
+            <div class="chart-card">
+                <div class="card-header">
+                    <h2 class="card-title">2024年巴黎奥运会主要项目奖牌分布</h2>
+                    <div class="sport-selector">
+                        <select class="selector" id="sports" v-model="inputSport" @change="loadSportPieData">
+                            <option value="athletics">Athletics(田径)</option>
+                            <option value="swimming">Swimming(游泳)</option>
+                            <option value="gymnastics">Gymnastics Artistic(竞技体操)</option>
+                            <option value="table_tennis">Table Tennis(乒乓球)</option>
+                            <option value="diving">Diving(跳水)</option>
+                            <option value="rowing">Rowing(赛艇)</option>
+                        </select>
+                    </div>
+                </div>
+                <div ref="sportPieChartRef" class="chart-container"></div>
+            </div>
+
+            <!-- 5. 主要国家历届夏季奖牌数折线图 -->
+            <div class="chart-card">
+                <div class="card-header">
+                    <h2 class="card-title">主要国家历届夏季奖牌数折线图</h2>
+                </div>
+                <div ref="summerChartRef" class="chart-container"></div>
+            </div>
+
+            <!-- 6. 主要国家历届冬季奖牌数折线图 -->
+            <div class="chart-card">
+                <div class="card-header">
+                    <h2 class="card-title">主要国家历届冬季奖牌数折线图</h2>
+                </div>
+                <div ref="winterChartRef" class="chart-container"></div>
+            </div>
+
+            <!-- 7. 主要国家历届奥运会奖牌数地图 -->
+            <div class="chart-card">
+                <div class="card-header">
+                    <h2 class="card-title">{{ currentYear }}年 奖牌分布世界地图</h2>
+
+                    <div class="year-selector">
+                        <!-- 改为下拉选择框 -->
+                        <select class="selector" id="olympicYear" v-model="inputYear" @change="loadData">
+                            <option value="2024">2024年巴黎</option>
+                            <option value="2020">2020年东京</option>
+                            <option value="2016">2016年里约热内卢</option>
+                            <option value="2012">2012年伦敦</option>
+                            <option value="2008">2008年北京</option>
+                            <option value="2004">2004年雅典</option>
+                            <option value="2000">2000年悉尼</option>
+                            <option value="1996">1996年亚特兰大</option>
+                            <option value="1992">1992年巴塞罗那</option>
+                            <option value="1988">1988年汉城</option>
+                            <option value="1984">1984年洛杉矶</option>
+                            <option value="1980">1980年莫斯科</option>
+                            <option value="1976">1976年蒙特利尔</option>
+                            <option value="1972">1972年慕尼黑</option>
+                            <option value="1968">1968年墨西哥城</option>
+                            <option value="1964">1964年东京</option>
+                            <option value="1960">1960年罗马</option>
+                            <option value="1956">1956年墨尔本/斯德哥尔摩</option>
+                            <option value="1952">1952年赫尔辛基</option>
+                            <option value="1948">1948年伦敦</option>
+                            <option value="1936">1936年柏林</option>
+                            <option value="1932">1932年洛杉矶</option>
+                            <option value="1928">1928年阿姆斯特丹</option>
+                            <option value="1924">1924年巴黎</option>
+                            <option value="1920">1920年安特卫普</option>
+                            <option value="1912">1912年斯德哥尔摩</option>
+                            <option value="1908">1908年伦敦</option>
+                            <option value="1904">1904年圣路易斯</option>
+                            <option value="1900">1900年巴黎</option>
+                            <option value="1896">1896年雅典</option>
+                            <!-- 可以继续添加更多年份 -->
+                        </select>
+                    </div>
+                </div>
+
+                <div ref="map2ChartRef" class="chart-container"></div>
+            </div>
+
+            <!-- 8. 主要国家历届奥运会奖牌占比 -->
+            <div class="chart-card">
+                <div class="card-header">
+                    <h2 class="card-title">{{ currentYearPie }}年奥运会奖牌占比</h2>
+
+                    <div class="year-selector">
+                        <select class="selector" id="olympicYear" v-model="inputYearPie" @change="loadYearPieData">
+                            <option value="2024">2024年巴黎</option>
+                            <option value="2020">2020年东京</option>
+                            <option value="2016">2016年里约热内卢</option>
+                            <option value="2012">2012年伦敦</option>
+                            <option value="2008">2008年北京</option>
+                            <option value="2004">2004年雅典</option>
+                            <option value="2000">2000年悉尼</option>
+                            <option value="1996">1996年亚特兰大</option>
+                            <option value="1992">1992年巴塞罗那</option>
+                            <option value="1988">1988年汉城</option>
+                            <option value="1984">1984年洛杉矶</option>
+                            <option value="1980">1980年莫斯科</option>
+                            <option value="1976">1976年蒙特利尔</option>
+                            <option value="1972">1972年慕尼黑</option>
+                            <option value="1968">1968年墨西哥城</option>
+                            <option value="1964">1964年东京</option>
+                            <option value="1960">1960年罗马</option>
+                            <option value="1956">1956年墨尔本/斯德哥尔摩</option>
+                            <option value="1952">1952年赫尔辛基</option>
+                            <option value="1948">1948年伦敦</option>
+                            <option value="1936">1936年柏林</option>
+                            <option value="1932">1932年洛杉矶</option>
+                            <option value="1928">1928年阿姆斯特丹</option>
+                            <option value="1924">1924年巴黎</option>
+                            <option value="1920">1920年安特卫普</option>
+                            <option value="1912">1912年斯德哥尔摩</option>
+                            <option value="1908">1908年伦敦</option>
+                            <option value="1904">1904年圣路易斯</option>
+                            <option value="1900">1900年巴黎</option>
+                            <option value="1896">1896年雅典</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div ref="yearPieChartRef" class="chart-container"></div>
+            </div>
+
+        </div>
+
+        <script>
+            const { createApp, ref, onMounted, onBeforeUnmount } = Vue;
+            createApp({
+                setup() {
+                    const mapChartRef = ref(null);
+                    const tooltipVisible = ref(false);
+                    const tooltipOpacity = ref(0);
+                    const tooltipPos = ref({ left: '0px', top: '0px' });
+                    const selectedCountry = ref('');
+                    const heapmapRef = ref(null);
+                    const summerChartRef = ref(null);
+                    const winterChartRef = ref(null);
+                    const map2ChartRef = ref(null);
+                    const inputYear = ref(2024); // 输入框的年份
+                    const currentYear = ref(2024); // 当前显示的年份
+                    let mapChart = null;
+                    
+                    const inputSport = ref("athletics");
+                    const currentSport = ref("athletics");
+                    const sportPieChartRef = ref(null);
+                    let sportPieChart = null;
+
+                    const inputYearPie = ref(2024); 
+                    const currentYearPie = ref(2024); 
+                    const yearPieChartRef = ref(null);
+                    let yearPieChart = null;
+
+                    let mapChartInstance = null;
+                    let miniRadarInstance = null;
+                    const ATTRIBUTES = ['力量', '速度', '柔韧', '技巧', '耐力', '协作'];
+
+                    const GLOBAL_DATA = {
+                        "United States": { "total": 115, "radar": [0.46, 1.0, 0.66, 0.65, 1.0, 0.86], "color": "#1f77b4" },
+                        "China": { "total": 81, "radar": [0.93, 0.13, 1.0, 1.0, 0.35, 0.14], "color": "#d62728" },
+                        "France": { "total": 62, "radar": [0.61, 0.15, 0.26, 0.5, 0.55, 1.0], "color": "#0055A4" },
+                        "Great Britain": { "total": 61, "radar": [0.1, 0.56, 0.45, 0.42, 0.38, 0.0], "color": "#FFD700" },
+                        "Australia": { "total": 52, "radar": [0.05, 0.36, 0.32, 0.23, 0.82, 0.21], "color": "#DC143C" },
+                        "Japan": { "total": 42, "radar": [1.0, 0.04, 0.45, 0.38, 0.07, 0.0], "color": "#000080" },
+                        "Italy": { "total": 39, "radar": [0.12, 0.21, 0.21, 0.54, 0.25, 0.21], "color": "#000000" },
+                        "Germany": { "total": 33, "radar": [0.07, 0.32, 0.11, 0.38, 0.16, 0.71], "color": "#008C45" },
+                        "Netherlands": { "total": 32, "radar": [0.0, 0.59, 0.02, 0.19, 0.11, 0.5], "color": "#003478" },
+                        "Korea Republic": { "total": 29, "radar": [0.41, 0.0, 0.0, 0.81, 0.04, 0.0], "color": "#FF8C00" },
+                        "Canada": { "total": 26, "radar": [0.17, 0.2, 0.09, 0.04, 0.29, 0.29], "color": "#FF0000" },
+                        "Brazil": { "total": 20, "radar": [0.22, 0.07, 0.25, 0.0, 0.0, 0.43], "color": "#009c3b" },
+                        "New Zealand": { "total": 20, "radar": [0.0, 0.44, 0.06, 0.12, 0.04, 0.21], "color": "#8B0000" },
+                        "Hungary": { "total": 18, "radar": [0.07, 0.15, 0.0, 0.15, 0.27, 0.0], "color": "#FFC400" },
+                        "Spain": { "total": 18, "radar": [0.1, 0.15, 0.04, 0.12, 0.0, 0.64], "color": "#436F4D" },
+                        "Uzbekistan": { "total": 13, "radar": [0.76, 0.0, 0.0, 0.0, 0.0, 0.0], "color": "#0099B5" },
+                        "Ukraine": { "total": 12, "radar": [0.2, 0.09, 0.04, 0.12, 0.0, 0.0], "color": "#4B0082" },
+                        "Iran": { "total": 12, "radar": [0.59, 0.0, 0.0, 0.0, 0.0, 0.0], "color": "#800080" },
+                        "Sweden": { "total": 11, "radar": [0.02, 0.04, 0.0, 0.19, 0.13, 0.21], "color": "#A52A2A" },
+                        "Poland": { "total": 10, "radar": [0.05, 0.05, 0.11, 0.04, 0.0, 0.14], "color": "#5F9EA0" },
+                        "Belgium": { "total": 10, "radar": [0.05, 0.09, 0.0, 0.0, 0.15, 0.0], "color": "#D2691E" },
+                        "Cuba": { "total": 9, "radar": [0.32, 0.01, 0.0, 0.0, 0.0, 0.0], "color": "#FF7F50" },
+                        "Romania": { "total": 9, "radar": [0.05, 0.16, 0.02, 0.0, 0.07, 0.0], "color": "#6495ED" },
+                        "Denmark": { "total": 9, "radar": [0.05, 0.03, 0.0, 0.15, 0.0, 0.29], "color": "#DC143C" },
+                        "Norway": { "total": 8, "radar": [0.1, 0.11, 0.0, 0.02, 0.0, 0.29], "color": "#00FFFF" },
+                        "Switzerland": { "total": 8, "radar": [0.0, 0.03, 0.0, 0.12, 0.05, 0.07], "color": "#00008B" },
+                        "Turkey": { "total": 8, "radar": [0.2, 0.0, 0.0, 0.06, 0.0, 0.0], "color": "#008B8B" },
+                        "Kenya": { "total": 8, "radar": [0.0, 0.23, 0.0, 0.0, 0.0, 0.0], "color": "#B8860B" },
+                        "Kazakhstan": { "total": 7, "radar": [0.22, 0.0, 0.04, 0.02, 0.0, 0.0], "color": "#A9A9A9" },
+                        "Croatia": { "total": 7, "radar": [0.1, 0.05, 0.0, 0.06, 0.0, 0.14], "color": "#006400" },
+                        "Bulgaria": { "total": 7, "radar": [0.29, 0.0, 0.04, 0.0, 0.0, 0.0], "color": "#BDB76B" },
+                        "Greece": { "total": 7, "radar": [0.05, 0.07, 0.02, 0.0, 0.04, 0.0], "color": "#8B008B" }
+                    };
+
+
+                    const FULL_MAP_DATA = [
+                        { "name": "United States", "value": 115 }, { "name": "China", "value": 81 }, { "name": "France", "value": 62 },
+                        { "name": "Great Britain", "value": 61 }, { "name": "Australia", "value": 52 }, { "name": "Japan", "value": 42 },
+                        { "name": "Italy", "value": 39 }, { "name": "Germany", "value": 33 }, { "name": "Netherlands", "value": 32 },
+                        { "name": "Korea Republic", "value": 29 }, { "name": "Canada", "value": 26 }, { "name": "Brazil", "value": 20 },
+                        { "name": "New Zealand", "value": 20 }, { "name": "Hungary", "value": 18 }, { "name": "Spain", "value": 18 },
+                        { "name": "Uzbekistan", "value": 13 }, { "name": "Ukraine", "value": 12 }, { "name": "Iran", "value": 12 },
+                        { "name": "Sweden", "value": 11 }, { "name": "Poland", "value": 10 }, { "name": "Belgium", "value": 10 },
+                        { "name": "Cuba", "value": 9 }, { "name": "Romania", "value": 9 }, { "name": "Denmark", "value": 9 },
+                        { "name": "Norway", "value": 8 }, { "name": "Switzerland", "value": 8 }, { "name": "Turkey", "value": 8 },
+                        { "name": "Kenya", "value": 8 }, { "name": "Kazakhstan", "value": 7 }, { "name": "Croatia", "value": 7 },
+                        { "name": "Bulgaria", "value": 7 }, { "name": "Greece", "value": 7 }, { "name": "Georgia", "value": 7 },
+                        { "name": "Azerbaijan", "value": 7 }, { "name": "Ireland", "value": 7 }, { "name": "Israel", "value": 7 },
+                        { "name": "Chinese Taipei", "value": 7 }, { "name": "India", "value": 6 }, { "name": "Thailand", "value": 6 },
+                        { "name": "Korea DPR", "value": 6 }, { "name": "Kyrgyzstan", "value": 6 }, { "name": "Jamaica", "value": 6 },
+                        { "name": "South Africa", "value": 6 }, { "name": "Mexico", "value": 5 }, { "name": "AIN", "value": 5 },
+                        { "name": "Serbia", "value": 5 }, { "name": "Ecuador", "value": 5 }, { "name": "Czech Republic", "value": 5 },
+                        { "name": "Moldova", "value": 4 }, { "name": "Lithuania", "value": 4 }, { "name": "Armenia", "value": 4 },
+                        { "name": "Portugal", "value": 4 }, { "name": "Bahrain", "value": 4 }, { "name": "Colombia", "value": 4 },
+                        { "name": "Austria", "value": 4 }, { "name": "Hong Kong, China", "value": 4 }, { "name": "Ethiopia", "value": 4 },
+                        { "name": "Philippines", "value": 4 }, { "name": "Argentina", "value": 3 }, { "name": "Tajikistan", "value": 3 },
+                        { "name": "Tunisia", "value": 3 }, { "name": "Algeria", "value": 3 }, { "name": "Slovenia", "value": 3 },
+                        { "name": "Dominican Republic", "value": 3 }, { "name": "Indonesia", "value": 3 }, { "name": "Egypt", "value": 3 },
+                        { "name": "Kosovo", "value": 2 }, { "name": "Morocco", "value": 2 }, { "name": "Guatemala", "value": 2 },
+                        { "name": "Chile", "value": 2 }, { "name": "Botswana", "value": 2 }, { "name": "Malaysia", "value": 2 },
+                        { "name": "Uganda", "value": 2 }, { "name": "Puerto Rico", "value": 2 }, { "name": "Saint Lucia", "value": 2 },
+                        { "name": "Grenada", "value": 2 }, { "name": "Albania", "value": 2 }, { "name": "Mongolia", "value": 1 },
+                        { "name": "Pakistan", "value": 1 }, { "name": "Panama", "value": 1 }, { "name": "Refugee Olympic Team", "value": 1 },
+                        { "name": "Slovakia", "value": 1 }, { "name": "Fiji", "value": 1 }, { "name": "Cyprus", "value": 1 },
+                        { "name": "Peru", "value": 1 }, { "name": "Singapore", "value": 1 }, { "name": "Qatar", "value": 1 },
+                        { "name": "Dominica", "value": 1 }, { "name": "Jordan", "value": 1 }, { "name": "Zambia", "value": 1 },
+                        { "name": "Cote d'Ivoire", "value": 1 }, { "name": "Cape Verde", "value": 1 },
+                    ];
+
+                    const NAME_MAP = {
+                        "United States of America": "United States",
+                        "USA": "United States",
+                        "United Kingdom": "Great Britain",
+                        "South Korea": "Korea Republic",
+                        "Korea": "Korea Republic",
+                        "The Netherlands": "Netherlands",
+                        "Russian Federation": "Russia"
+                    };
+
+                    // 夏季数据
+                    const getMockSummerData = () => {
+                        let data = [
+                            { name: 'Australia', data: [2, 5, 4, 0, 0, 3, 6, 4, 5, 1, 13, 11, 35, 22, 18, 17, 17, 5, 9, 24, 14, 27, 41, 58, 50, 46, 35, 29, 46, 53], total: 600 },
+                            { name: 'Brazil', data: [null, null, null, null, null, 3, 0, 0, 0, 0, 1, 3, 1, 2, 1, 3, 2, 2, 4, 8, 6, 3, 15, 12, 10, 17, 17, 19, 21, 20], total: 170 },
+                            { name: 'Canada', data: [null, 2, 6, 16, 8, 9, 4, 15, 15, 9, 3, 3, 6, 1, 4, 5, 5, 11, 0, 44, 10, 18, 22, 14, 12, 20, 18, 22, 24, 27], total: 353 },
+                            { name: 'China', data: [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 32, 28, 54, 50, 58, 63, 100, 92, 70, 88, 91], total: 626 },
+                            { name: 'France', data: [11, 110, 1, 19, 14, 41, 38, 21, 19, 19, 29, 18, 14, 5, 15, 15, 13, 9, 14, 28, 16, 29, 37, 38, 33, 43, 35, 42, 33, 64], total: 723 },
+                            { name: 'Germany', data: [13, 9, 15, 13, 25, 0, 0, 31, 20, 89, 0, 24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 82, 65, 56, 49, 41, 44, 42, 37, 33], total: 688 },
+                            { name: 'Great Britain', data: [7, 35, 2, 146, 41, 42, 34, 20, 16, 14, 23, 11, 24, 20, 18, 13, 18, 13, 21, 37, 24, 20, 15, 28, 30, 51, 65, 67, 65, 65], total: 985 },
+                            { name: 'Italy', data: [null, 5, 0, 4, 6, 23, 16, 19, 36, 22, 27, 21, 25, 36, 27, 16, 18, 13, 15, 32, 14, 19, 35, 34, 32, 27, 28, 28, 40, 40], total: 658 },
+                            { name: 'Japan', data: [null, null, null, null, null, 2, 1, 5, 18, 18, 0, 9, 19, 18, 29, 25, 29, 25, 0, 32, 14, 22, 14, 18, 37, 25, 38, 41, 58, 45], total: 442 },
+                            { name: 'Korea Republic', data: [null, null, null, null, null, null, null, null, null, null, 2, 2, 2, 0, 3, 2, 1, 6, 0, 19, 33, 29, 27, 28, 30, 32, 31, 21, 20, 32], total: 320 },
+                            { name: 'Netherlands', data: [null, 6, 0, 2, 3, 11, 10, 19, 7, 17, 16, 5, 0, 3, 10, 7, 5, 5, 3, 13, 9, 15, 19, 25, 22, 16, 20, 19, 36, 34], total: 357 },
+                            { name: 'Russian Federation', data: [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 63, 89, 90, 60, 64, 56, 71, null], total: 493 },
+                            { name: 'Switzerland', data: [3, 9, 3, 0, 0, 11, 25, 15, 1, 15, 20, 14, 1, 6, 4, 5, 3, 4, 2, 8, 4, 1, 7, 9, 5, 7, 4, 7, 13, 8], total: 214 },
+                            { name: 'USSR', data: [null, null, null, null, null, null, null, null, null, null, null, 71, 98, 103, 96, 91, 99, 125, 195, 0, 132, null, null, null, null, null, null, null, null, null], total: 1010 },
+                            { name: 'United States', data: [20, 48, 234, 47, 63, 95, 99, 56, 103, 56, 84, 76, 74, 71, 90, 107, 94, 94, 0, 174, 94, 108, 101, 93, 101, 112, 104, 121, 113, 126], total: 2758 }
+                        ];
+                        return data;
+                    };
+
+                    // 冬季数据
+                    const getMockWinterData = () => {
+                        let data = [
+                            { name: 'Norway', data: [17, 15, 10, 15, 10, 16, 4, 6, 15, 14, 12, 7, 10, 9, 5, 20, 26, 25, 25, 19, 23, 26, 39, 37] },
+                            { name: 'United States', data: [4, 6, 12, 4, 9, 11, 7, 10, 7, 7, 8, 10, 12, 8, 6, 11, 13, 13, 34, 25, 37, 28, 23, 25] },
+                            { name: 'Germany', data: [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 26, 24, 29, 36, 29, 30, 19, 31, 27] },
+                            { name: 'Austria', data: [3, 4, 2, 4, 8, 8, 11, 6, 12, 11, 5, 6, 7, 1, 10, 21, 9, 17, 17, 23, 16, 17, 14, 18] },
+                            { name: 'Canada', data: [1, 1, 7, 1, 3, 2, 3, 4, 3, 3, 1, 3, 2, 4, 5, 7, 13, 15, 17, 24, 26, 25, 29, 26] },
+                            { name: 'USSR', data: [null, null, null, null, null, null, 16, 21, 25, 13, 16, 27, 22, 25, 29, null, null, null, null, null, null, null, null, null] },
+                            { name: 'Sweden', data: [2, 5, 3, 7, 10, 4, 10, 7, 7, 8, 4, 2, 4, 8, 6, 4, 3, 3, 7, 14, 11, 15, 14, 18] },
+                            { name: 'Finland', data: [11, 4, 3, 6, 6, 9, 7, 8, 10, 5, 5, 7, 9, 13, 7, 7, 6, 12, 7, 9, 5, 5, 6, 8] },
+                            { name: 'Switzerland', data: [3, 1, 1, 3, 10, 2, 6, 2, 0, 6, 10, 5, 5, 5, 15, 3, 9, 7, 11, 14, 9, 11, 15, 15] },
+                            { name: 'Netherlands', data: [null, null, null, null, null, 3, 0, 2, 2, 9, 9, 6, 4, 0, 7, 4, 4, 11, 8, 9, 8, 24, 20, 17] },
+                            { name: 'China', data: [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 3, 3, 8, 8, 11, 11, 9, 9, 15] },
+                        ];
+                        return data;
+                    };
+
+                    // 战力地图
+                    const initMapChart = () => {
+                        mapChartInstance = echarts.init(mapChartRef.value);
+
+                        const option = {
+                            tooltip: {
+                                trigger: 'item',
+                                formatter: function (params) {
+                                    if (params.value) {
+                                        let hint = GLOBAL_DATA[params.name]
+                                            ? `<br/><span style="color:#d32f2f;font-size:12px;">● 悬停查看战力雷达</span>`
+                                            : '';
+                                        return `<b>${params.name}</b><br/>Total Medals: ${params.value}${hint}`;
+                                    }
+                                    return params.name;
+                                }
+                            },
+                            visualMap: {
+                                min: 0,
+                                max: 120,
+                                left: 'left',
+                                bottom: '20',
+                                calculable: true,
+                                inRange: {
+                                    color: ['#fff5f0', '#fee0d2', '#fcbba1', '#fc9272', '#fb6a4a', '#ef3b2c', '#cb181d', '#99000d']
+                                }
+                            },
+                            series: [{
+                                name: 'Medals',
+                                type: 'map',
+                                mapType: 'world',
+                                roam: true,
+                                zoom: 1.2,
+                                nameMap: NAME_MAP,
+                                itemStyle: {
+                                    areaColor: '#f5f5f5',
+                                    borderColor: '#999',
+                                    borderWidth: 0.5
+                                },
+                                emphasis: {
+                                    label: { show: true },
+                                    itemStyle: {
+                                        areaColor: '#ffeb3b',
+                                        shadowBlur: 10
+                                    }
+                                },
+                                data: FULL_MAP_DATA
+                            }]
+                        };
+
+                        mapChartInstance.setOption(option);
+
+                        mapChartInstance.on('mouseover', function (params) {
+                            let hoveredName = params.name;
+                            if (hoveredName === "United States of America" || hoveredName === "USA") hoveredName = "United States";
+                            if (hoveredName === "United Kingdom" || hoveredName === "UK") hoveredName = "Great Britain";
+
+                            if (GLOBAL_DATA[hoveredName]) {
+                                showRadarTooltip(hoveredName, params.event.event.clientX, params.event.event.clientY);
+                            }
+                        });
+
+
+                        mapChartInstance.on('mouseout', function (params) {
+
+                            closeTooltip();
+                        });
+                    };
+
+                    // 热力图
+                    const initHeatmap = () => {
+                        const myChart = echarts.init(heapmapRef.value);
+
+                        // 热力图数据
+                        var heapmap_countries = ["United States", "China", "Great Britain", "France", "Australia", "Japan", "Italy", "Germany", "Netherlands", "Korea Republic", "Canada", "Brazil", "New Zealand", "Hungary", "Spain"];
+                        var heapmap_sports = ["Athletics", "Swimming", "Judo", "Boxing", "Wrestling Freestyle", "Shooting", "Gymnastics Artistic", "Rowing", "Cycling Track", "Fencing", "Taekwondo", "Canoe Sprint"];
+                        var heapmap_values = [[34, 28, 0, 1, 7, 5, 9, 2, 2, 4, 1, 1], [4, 12, 1, 5, 3, 10, 9, 0, 0, 0, 2, 2], [10, 5, 0, 1, 0, 2, 2, 8, 8, 0, 1, 0], [1, 7, 10, 3, 0, 1, 0, 0, 1, 7, 2, 0], [7, 18, 0, 2, 0, 1, 0, 1, 5, 0, 0, 2], [1, 1, 8, 0, 9, 0, 4, 0, 0, 5, 0, 0], [3, 5, 1, 0, 0, 4, 3, 2, 3, 5, 1, 1], [4, 2, 1, 1, 0, 0, 0, 2, 2, 0, 0, 4], [6, 2, 0, 0, 0, 0, 0, 8, 5, 0, 0, 0], [0, 1, 5, 1, 0, 6, 0, 0, 0, 3, 3, 0], [5, 8, 1, 1, 0, 0, 0, 1, 0, 1, 1, 2], [2, 0, 4, 1, 0, 0, 4, 0, 0, 0, 1, 1], [2, 0, 0, 0, 0, 0, 0, 4, 5, 0, 0, 3], [1, 3, 0, 0, 0, 1, 0, 0, 0, 3, 1, 7], [4, 0, 1, 2, 0, 0, 0, 0, 0, 0, 0, 2]];
+            
+                        var heatmapData = [];
+                        for (var i = 0; i < heapmap_countries.length; i++) {
+                            for (var j = 0; j < heapmap_sports.length; j++) {
+                                heatmapData.push([j, i, heapmap_values[i][j]]);
+                            }
+                        }
+                
+                        var maxValue = 0;
+                        heapmap_values.forEach(row => {
+                            var rowMax = Math.max(...row);
+                            if (rowMax > maxValue) maxValue = rowMax;
+                        });
+
+                        const option = {
+                            // 增加图表入场动画
+                            animation: true,
+                            animationDuration: 1500,
+                            animationEasing: 'cubicOut',
+                            
+                            tooltip: {
+                                position: 'top',
+                                formatter: function(params) {
+                                    var value = params.value;
+                                    return '<div style="padding: 10px 14px; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">'+
+                                        '<div style="font-weight: 600; color: #1a365d; margin-bottom: 5px;">' + heapmap_countries[value[1]] + '</div>'+
+                                        '<div style="color: #4b5563; margin-bottom: 4px;">项目：' + heapmap_sports[value[0]] + '</div>'+
+                                        '<div style="color: #e53e3e; font-weight: bold;">奖牌数：' + value[2] + ' 枚</div>'+
+                                        '</div>';
+                                },
+                                backgroundColor: 'transparent',
+                                borderColor: 'transparent',
+                                textStyle: {
+                                    fontSize: 14
+                                },
+                                //  tooltip显示延迟优化
+                                showDelay: 100,
+                                hideDelay: 300
+                            },
+                            // 网格布局优化，增加留白
+                            grid: {
+                                left: '8%',
+                                right: '8%',
+                                top: '12%',
+                                bottom: '15%',
+                                containLabel: true
+                            },
+                            xAxis: {
+                                type: 'category',
+                                data: heapmap_sports,
+                                axisLabel: {
+                                    rotate: 50,
+                                    interval: 0,
+                                    fontSize: 12,
+                                    color: '#4b5563',
+                                    fontWeight: 500,
+                                    padding: [10, 0, 0, 0],  // 增加底部留白避免文字截断
+                                    lineHeight: 16
+                                },
+                                axisLine: {
+                                    lineStyle: {
+                                        color: '#e5e7eb'
+                                    }
+                                },
+                                axisTick: {
+                                    show: false
+                                },
+                                splitLine: {
+                                    show: false
+                                }
+                            },
+                            yAxis: {
+                                type: 'category',
+                                data: heapmap_countries,
+                                axisLabel: {
+                                    fontSize: 12,
+                                    color: '#4b5563',
+                                    fontWeight: 500,
+                                    padding: [0, 10, 0, 0]
+                                },
+                                axisLine: {
+                                    lineStyle: {
+                                        color: '#e5e7eb'
+                                    }
+                                },
+                                axisTick: {
+                                    show: false
+                                },
+                                splitLine: {
+                                    show: false
+                                }
+                            },
+                            visualMap: {
+                                min: 0,
+                                max: maxValue,
+                                calculable: true,
+                                orient: 'horizontal',
+                                position: 'bottom',
+                                left: '8%',
+                                right: '8%',
+                                bottom: '7%',
+                                text: ['', '奖牌数'],
+                                textStyle: {
+                                    fontSize: 12,
+                                    color: '#6b7280'
+                                },
+                                // 颜色渐变优化，更柔和的蓝色过渡
+                                inRange: {
+                                    color: [
+                                        '#edf2ff',
+                                        '#dbeafe',
+                                        '#bfdbfe',
+                                        '#93c5fd',
+                                        '#60a5fa',
+                                        '#3b82f6',
+                                        '#2563eb',
+                                        '#1d4ed8',
+                                        '#1e40af'
+                                    ]
+                                },
+                                borderColor: '#e5e7eb',
+                                borderWidth: 1,
+                                borderRadius: 6,
+                                backgroundColor: 'white',
+                                shadowBlur: 4,
+                                shadowColor: 'rgba(0,0,0,0.08)',
+                                // 滑块样式优化
+                                handleSize: 14,
+                                handleStyle: {
+                                    color: 'white',
+                                    borderColor: '#93c5fd',
+                                    shadowBlur: 2
+                                }
+                            },
+                            series: [{
+                                name: '奖牌数',
+                                type: 'heatmap',
+                                data: heatmapData,
+                                label: {
+                                    show: false,
+                                    fontSize: 11,
+                                    color: '#1f2937'
+                                },
+                                emphasis: {
+                                    itemStyle: {
+                                        shadowBlur: 10,
+                                        shadowColor: 'rgba(0,0,0,0.25)',
+                                        borderColor: '#93c5fd',
+                                        borderWidth: 2
+                                    },
+                                    label: {
+                                        show: true,
+                                        color: '#1a365d',
+                                        fontWeight: 600,
+                                        fontSize: 12
+                                    }
+                                },
+                                blurSize: 1,
+                                itemStyle: {
+                                    borderRadius: 4,
+                                    borderWidth: 1,
+                                    borderColor: 'white',
+                                    // 增加hover过渡效果
+                                    transition: 'all 0.3s ease'
+                                }
+                            }]
+                        };
+                        myChart.setOption(option);
+                    }
+
+                    // 夏季折线图
+                    const initSummerChart = () => {
+                        // 初始化Echarts实例
+                        const myChart = echarts.init(summerChartRef.value);
+
+                        // 初始数据（示例：折线图的X轴时间、Y轴数据）
+                        var fullTimeList = [1896, 1900, 1904, 1908, 1912, 1920, 1924,
+                            1928, 1932, 1936, 1948, 1952, 1956, 1960, 1964,
+                            1968, 1972, 1976, 1980, 1984, 1988, 1992, 1996,
+                            2000, 2004, 2008, 2012, 2016, 2020, 2024];
+                        let mockData = getMockSummerData();
+                        // 4. 转换数据格式为 ECharts series 需要的格式
+                        var seriesList = mockData.map(function (item) {
+                            return {
+                                name: item.name,
+                                type: 'line',
+                                data: item.data,
+                                smooth: true, // 开启平滑曲线
+                                showSymbol: true, // 数据点少时不显示圆点，鼠标悬停才显示
+                                emphasis: {
+                                    focus: 'series' // 悬停时高亮当前线条，淡出其他
+                                },
+                                // 动态效果配置
+                                animationDuration: 3000, // 初始动画时长 3秒
+                                animationEasing: 'cubicInOut'
+                            };
+                        });
+
+                        // 5. 配置项
+                        var option = {
+                            title: {
+                                text: 'Olympic Medal Counts (Top Countries Example)',
+                                left: 'center'
+                            },
+                            tooltip: {
+                                trigger: 'item', // 坐标轴触发，适合折线图
+                                axisPointer: {
+                                    type: 'cross'
+                                },
+                                order: 'valueDesc' // 提示框按数值大小排序
+                            },
+                            legend: {
+                                data: mockData.map(item => item.name),
+                                top: 30,
+                                type: 'scroll' // 国家太多时开启滚动图例
+                            },
+                            grid: {
+                                left: '3%',
+                                right: '4%',
+                                bottom: '10%',
+                                containLabel: true
+                            },
+                            // 数据区域缩放组件 (DataZoom) - 实现"动态"查看历史的关键
+                            dataZoom: [
+                                {
+                                    type: 'slider',
+                                    show: true,
+                                    start: 60,  // 默认显示最后 40% 的数据
+                                    end: 100
+                                },
+                                {
+                                    type: 'inside', // 支持鼠标滚轮缩放
+                                    start: 60,
+                                    end: 100
+                                }
+                            ],
+                            xAxis: {
+                                type: 'category',
+                                boundaryGap: false,
+                                data: fullTimeList // 使用完整个时间点
+                            },
+                            yAxis: {
+                                type: 'value',
+                                name: 'Medals'
+                            },
+                            series: seriesList
+                        };
+
+                        // 6. 渲染图表
+                        myChart.setOption(option);
+                    };
+
+                    // 冬季折线图
+                    const initWinterChart = () => {
+                        // 初始化Echarts实例
+                        const myChart = echarts.init(winterChartRef.value);
+
+                        // 初始数据（示例：折线图的X轴时间、Y轴数据）
+                        var fullTimeList = [1924, 1928, 1932, 1936, 1948, 1952, 1956,
+                            1960, 1964, 1968, 1972, 1976, 1980, 1984, 1988,
+                            1992, 1994, 1998, 2002, 2006, 2010, 2014, 2018,
+                            2022];
+                        let mockData = getMockWinterData();
+                        // 4. 转换数据格式为 ECharts series 需要的格式
+                        var seriesList = mockData.map(function (item) {
+                            return {
+                                name: item.name,
+                                type: 'line',
+                                data: item.data,
+                                smooth: true, // 开启平滑曲线
+                                showSymbol: true, // 数据点少时不显示圆点，鼠标悬停才显示
+                                emphasis: {
+                                    focus: 'series' // 悬停时高亮当前线条，淡出其他
+                                },
+                                // 动态效果配置
+                                animationDuration: 3000, // 初始动画时长 3秒
+                                animationEasing: 'cubicInOut'
+                            };
+                        });
+
+                        // 5. 配置项
+                        var option = {
+                            title: {
+                                text: 'Olympic Medal Counts (Top Countries Example)',
+                                left: 'center'
+                            },
+                            tooltip: {
+                                trigger: 'item', // 坐标轴触发，适合折线图
+                                axisPointer: {
+                                    type: 'cross'
+                                },
+                                order: 'valueDesc' // 提示框按数值大小排序
+                            },
+                            legend: {
+                                data: mockData.map(item => item.name),
+                                top: 30,
+                                type: 'scroll' // 国家太多时开启滚动图例
+                            },
+                            grid: {
+                                left: '3%',
+                                right: '4%',
+                                bottom: '10%',
+                                containLabel: true
+                            },
+                            // 数据区域缩放组件 (DataZoom) - 实现"动态"查看历史的关键
+                            dataZoom: [
+                                {
+                                    type: 'slider',
+                                    show: true,
+                                    start: 60,  // 默认显示最后 40% 的数据
+                                    end: 100
+                                },
+                                {
+                                    type: 'inside', // 支持鼠标滚轮缩放
+                                    start: 60,
+                                    end: 100
+                                }
+                            ],
+                            xAxis: {
+                                type: 'category',
+                                boundaryGap: false,
+                                data: fullTimeList // 使用完整个时间点
+                            },
+                            yAxis: {
+                                type: 'value',
+                                name: 'Medals'
+                            },
+                            series: seriesList
+                        };
+
+                        // 6. 渲染图表
+                        myChart.setOption(option);
+                    };
+
+                    const showRadarTooltip = (country, x, y) => {
+                        if (selectedCountry.value === country && tooltipVisible.value) return;
+                        selectedCountry.value = country;
+
+                        let left = x + 20;
+                        let top = y + 20;
+                        if (left + 400 > window.innerWidth) left = x - 410;
+                        if (top + 460 > window.innerHeight) top = y - 470;
+
+                        tooltipPos.value = { left: left + 'px', top: top + 'px' };
+                        tooltipVisible.value = true;
+                        tooltipOpacity.value = 1; // 显示
+
+                        // 渲染雷达图
+                        renderMiniRadar(country);
+                    };
+
+                    const closeTooltip = () => {
+                        tooltipVisible.value = false;
+                        tooltipOpacity.value = 0;
+                        selectedCountry.value = '';
+                    };
+
+                    const renderMiniRadar = (country) => {
+                        const dom = document.getElementById('mini-radar-chart');
+                        if (!miniRadarInstance) miniRadarInstance = echarts.init(dom);
+
+                        const d = GLOBAL_DATA[country];
+
+                        const option = {
+                            radar: {
+                                indicator: ATTRIBUTES.map((n, idx) => ({
+                                    name: n,
+                                    max: 1.0
+                                })),
+                                radius: '65%',
+                                center: ['50%', '50%'],
+                                splitNumber: 4,
+                                axisName: {
+                                    color: '#333',
+                                    fontWeight: 'bold',
+                                    fontSize: 13,
+                                    formatter: function (value, indicator) {
+                                        const val = d.radar[ATTRIBUTES.indexOf(value)];
+                                        return `${value}\n${val}`;
+                                    }
+                                },
+                                splitArea: { areaStyle: { color: ['#fff', '#fff9f9'] } }
+                            },
+                            series: [{
+                                type: 'radar',
+                                data: [{ value: d.radar, name: country }],
+                                symbol: 'circle',
+                                symbolSize: 6,
+                                label: { show: false },
+                                itemStyle: { color: d.color },
+                                areaStyle: { color: d.color, opacity: 0.5 },
+                                animation: true, animationDuration: 500, animationEasing: 'cubicOut'
+                            }]
+                        };
+                        miniRadarInstance.clear();
+                        miniRadarInstance.setOption(option);
+                    };
+
+                    const updateSportPie = (sport) => {
+                        if (!sportPieChart) return;
+
+                        const data = sportMedalData[currentSport.value];
+                        const country_data = data.country_data;
+
+                        const option = {
+                            title: {
+                                text: `${data.name}项目奖牌分布`,
+                                left: 'center',
+                                top: '2%',
+                                textStyle: { fontSize: 18, fontWeight: 'bold', color: '#333' }
+                            },
+                            tooltip: {
+                                trigger: 'item',
+                                formatter: function(params) {
+                                    return `<div>奖牌数: ${params.value}枚</div>
+                                            <div>占比: ${((params.value / data.total_medals) * 100).toFixed(1)}%</div>`;
+
+                                },
+                                backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                                borderColor: '#ddd',
+                                borderWidth: 1,
+                                textStyle: { color: '#333' },
+                                padding: 10,
+                                boxShadow: '0 2px 10px rgba(0, 0, 0, 0.1)',
+                                triggerOn: 'mousemove' // 鼠标移动时触发提示框
+                            },
+                            // 图例配置
+                            legend: {
+                                data: country_data.map(item => item.name), // 动态生成图例数据（与系列数据联动）
+                                orient: 'horizontal',
+                                bottom: '5%',
+                                left: 'center',
+                                top: null,
+                                textStyle: { color: '#333', fontSize: 14 },
+                                itemGap: 15,
+                                icon: 'circle',
+                                itemWidth: 10,
+                                itemHeight: 10,
+                                // 图例悬浮交互样式
+                                emphasis: {
+                                    textStyle: { color: '#0066cc', fontWeight: 'bold' },
+                                    iconStyle: { scale: 1.2, color: null } // 继承系列颜色
+                                },
+                                // 图例与系列的联动策略（默认开启，可显式配置）
+                                link: 'all',
+                            },
+                            emphasis: {
+                                focus: 'series',
+                                blurScope: 'coordinateSystem'
+                            },
+                            series: [
+                                {
+                                    name: '奖牌数',
+                                    type: 'pie',
+                                    radius: ['40%', '65%'],
+                                    center: ['50%', '45%'],
+                                    avoidLabelOverlap: false,
+                                    itemStyle: {
+                                        borderColor: '#fff',
+                                        borderWidth: 2,
+                                        borderRadius: 4
+                                    },
+                                    label: { show: false },
+                                    labelLine: { show: false },
+                                    animationDuration: 1000,
+                                    animationEasingUpdate: 'quinticInOut',
+                                    data: country_data.map(item => ({
+                                        name: item.name,
+                                        value: item.value,
+                                        itemStyle: {
+                                            color: item.color
+                                        },
+                                    })),
+                                    // 饼图扇区悬浮交互
+                                    emphasis: {
+                                        scale: true,
+                                        scaleSize: 8,
+                                        itemStyle: {
+                                            shadowBlur: 15,
+                                            shadowColor: 'rgba(0, 0, 0, 0.4)'
+                                        },
+                                        label: {
+                                            show: true,
+                                            fontSize: 16,
+                                            fontWeight: 'bold',
+                                            color: '#333',
+                                            position: 'center'
+                                        }
+                                    },
+                                }
+                            ],
+                        };
+                        
+                        sportPieChart.setOption(option);
+                    };
+
+                    const loadSportPieData = () => {
+                        const y = inputSport.value;
+                        currentSport.value = y;
+                        updateSportPie(y);
+                    };
+
+                    const initSportPieChart = () => {
+                        sportPieChart = echarts.init(sportPieChartRef.value);
+                        // 首次加载
+                        updateSportPie(currentSport.value);
+                    };
+
+                    // --- 1. 获取数据函数 ---
+                    const getMockData = (year) => {
+                        // 1. 尝试从 olympicData 中获取对应年份的数据
+                        const yearData = olympicData[year];
+
+                        // 2. 如果找到了数据，就返回；如果没找到（比如输入了 1900），这就返回一个空数组，地图会变灰
+                        if (yearData) {
+                            return yearData;
+                        } else {
+                            // console.warn(`没有找到 ${year} 年的数据`);
+                            return [];
+                        }
+                    };
+
+                    // --- 2. 更新地图数据 ---
+                    const updateMap = (year) => {
+                        if (!mapChart) return;
+
+                        const data = getMockData(year);
+                        const maxVal = data.length > 0 ? Math.max(...data.map(d => d.value)) : 100;
+
+                        const option = {
+                            tooltip: {
+                                trigger: 'item',
+                                formatter: function (params) {
+                                    if (params.value) {
+                                        return `${params.name}<br/>奖牌数: ${params.value}`;
+                                    }
+                                    return params.name + '<br/>无数据';
+                                }
+                            },
+                            visualMap: {
+                                min: 0,
+                                max: maxVal,
+                                left: 'left',
+                                top: 'bottom',
+                                calculable: true,
+                                inRange: {
+                                    color: ['#f0f9ff', '#bae6fd', '#60a5fa', '#2563eb', '#1d4ed8']
+                                }
+                            },
+                            series: [{
+                                name: '奖牌数',
+                                type: 'map',
+                                mapType: 'world',
+                                roam: true,
+                                emphasis: {
+                                    label: { show: true },
+                                    itemStyle: { areaColor: '#f59e0b' }
+                                },
+                                data: data
+                            }]
+                        };
+                        mapChart.setOption(option);
+                    };
+
+                    // --- 3. 加载数据按钮点击事件 ---
+                    const loadData = () => {
+                        // 简单校验
+                        const y = parseInt(inputYear.value);
+                        if (!y || y < 1896 || y > 2024) {
+                            alert("请输入 1896 到 2024 之间的年份");
+                            return;
+                        }
+                        currentYear.value = y;
+                        updateMap(y);
+                    };
+
+                    // --- 4. 初始化 ---
+                    const initCharts = () => {
+                        mapChart = echarts.init(map2ChartRef.value);
+                        // 首次加载
+                        updateMap(currentYear.value);
+                    };
+
+                    const updateYearPie = (year) => {
+                        if (!yearPieChart) return;
+
+                        const data = detailedMedalData[currentYearPie.value];
+                        const pie_data = data.pie_data;
+
+                        const option = {
+                            title: {
+                                text: `总奖牌数: ${data.total_medals}   总参赛国家/地区: ${data.countries_count}`,
+                                left: 'center',
+                                top: '2%',
+                                textStyle: { fontSize: 15, color: '#666' }
+                            },
+                            tooltip: {
+                                trigger: 'item',
+                                formatter: function(params) {
+                                    // 基础信息
+                                    let html = `<div style="font-weight:bold;margin-bottom:5px">${params.name}</div>`;
+                                    html += `<div>总奖牌: ${params.value}枚</div>`;
+                                    html += `<div>占比: ${((params.value / data.total_medals) * 100).toFixed(1)}%</div>`
+                                    html += `<div style="color:#FFD700">金牌: ${params.data.gold}枚</div>`;
+                                    html += `<div style="color:#C0C0C0">银牌: ${params.data.silver}枚</div>`;
+                                    html += `<div style="color:#CD7F32">铜牌: ${params.data.bronze}枚</div>`;
+                                    
+                                    // 为Others添加国家数量信息
+                                    if (params.name === 'Others' && params.data.countries) {
+                                        html += `<div style="margin-top:5px">包含国家/地区: ${params.data.countries}个</div>`;
+                                    }
+                                    
+                                    return html;
+                                },
+                                backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                                borderColor: '#ddd',
+                                borderWidth: 1,
+                                textStyle: { color: '#333' },
+                                padding: 10,
+                                boxShadow: '0 2px 10px rgba(0, 0, 0, 0.1)',
+                                triggerOn: 'mousemove' // 鼠标移动时触发提示框
+                            },
+                            // 图例配置
+                            legend: {
+                                data: pie_data.map(item => item.name), // 动态生成图例数据（与系列数据联动）
+                                orient: 'horizontal',
+                                bottom: '5%',
+                                left: 'center',
+                                top: null,
+                                textStyle: { color: '#333', fontSize: 14 },
+                                itemGap: 15,
+                                icon: 'circle',
+                                itemWidth: 10,
+                                itemHeight: 10,
+                                // 图例悬浮交互样式
+                                emphasis: {
+                                    textStyle: { color: '#0066cc', fontWeight: 'bold' },
+                                    iconStyle: { scale: 1.2, color: null } // 继承系列颜色
+                                },
+                                // 图例与系列的联动策略（默认开启，可显式配置）
+                                link: 'all',
+                            },
+                            emphasis: {
+                                focus: 'series',
+                                blurScope: 'coordinateSystem'
+                            },
+                            series: [
+                                {
+                                    name: '奖牌数',
+                                    type: 'pie',
+                                    radius: ['40%', '65%'],
+                                    center: ['50%', '45%'],
+                                    avoidLabelOverlap: false,
+                                    itemStyle: {
+                                        borderColor: '#fff',
+                                        borderWidth: 2,
+                                        borderRadius: 4
+                                    },
+                                    label: { show: false },
+                                    labelLine: { show: false },
+                                    animationDuration: 1000,
+                                    animationEasingUpdate: 'quinticInOut',
+                                    data: pie_data.map(item => ({
+                                        name: item.name,
+                                        value: item.value,
+                                        gold: item.gold,
+                                        silver: item.silver,
+                                        bronze: item.bronze,
+                                        countries: item.countries,
+                                        itemStyle: {
+                                            color: item.color
+                                        },
+                                    })),
+                                    // 饼图扇区悬浮交互
+                                    emphasis: {
+                                        scale: true,
+                                        scaleSize: 8,
+                                        itemStyle: {
+                                            shadowBlur: 15,
+                                            shadowColor: 'rgba(0, 0, 0, 0.4)'
+                                        },
+                                        label: {
+                                            show: true,
+                                            fontSize: 16,
+                                            fontWeight: 'bold',
+                                            color: '#333',
+                                            position: ['50%', '45%'], 
+                                            align: 'center',
+                                            verticalAlign: 'middle'
+                                        }
+                                    },
+                                }
+                            ],
+                        };
+                        
+                        yearPieChart.setOption(option);
+                    };
+
+                    const loadYearPieData = () => {
+                        const y = inputYearPie.value;
+                        currentYearPie.value = y;
+                        updateYearPie(y);
+                    };
+
+                    const initYearPieChart = () => {
+                        yearPieChart = echarts.init(yearPieChartRef.value);
+                        // 首次加载
+                        updateYearPie(currentYearPie.value);
+                    };
+
+                    onMounted(() => {
+                        initMapChart();
+                        initHeatmap();
+                        initSummerChart();
+                        initWinterChart();
+                        setTimeout(() => {
+                            initCharts();
+                            initSportPieChart();
+                            initYearPieChart();
+                        }, 100);
+                        window.addEventListener('resize', () => {
+                            mapChartInstance && mapChartInstance.resize();
+                            miniRadarInstance && miniRadarInstance.resize();
+                        });
+                    });
+
+                    onBeforeUnmount(() => {
+                        if (mapChart) mapChart.dispose();
+                        if (map2Chart) map2Chart.dispose();
+                        if (sportPieChart) sportPieChart.dispose();
+                        if (yearPieChart) yearPieChart.dispose();
+                    });
+                    return {
+                        mapChartRef, tooltipVisible, tooltipPos,
+                        selectedCountry, tooltipOpacity, heapmapRef,
+                        summerChartRef, winterChartRef,
+                        map2ChartRef, inputYear, currentYear, loadData,
+                        inputSport, currentSport, sportPieChartRef, loadSportPieData,
+                        inputYearPie, currentYearPie, yearPieChartRef, loadYearPieData
+                    };
+                }
+            }).mount('#app');
+
+        </script>
+</body>
+
+</html>
